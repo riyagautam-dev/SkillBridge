@@ -117,8 +117,8 @@ def finalize_test_attempt(attempt, db):
 # =====================================================
 # 1. STUDENT AVAILABLE TESTS
 # =====================================================
-
 @router.get("/tests")
+
 def get_available_tests(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
