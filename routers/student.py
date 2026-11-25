@@ -118,7 +118,6 @@ def finalize_test_attempt(attempt, db):
 # 1. STUDENT AVAILABLE TESTS
 # =====================================================
 @router.get("/tests")
-
 def get_available_tests(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -129,19 +128,8 @@ def get_available_tests(
             detail="Only students allowed"
         )
 
-    attempted_test_ids = db.query(
-        TestAttempt.test_id
-    ).filter(
-        TestAttempt.student_id == current_user.id
-    ).all()
-
-    attempted_test_ids = [
-        item[0] for item in attempted_test_ids
-    ]
-
     tests = db.query(Test).filter(
-        Test.is_active == True,
-        ~Test.id.in_(attempted_test_ids)
+        Test.is_active == True
     ).all()
 
     return [
