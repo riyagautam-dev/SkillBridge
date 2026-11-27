@@ -176,3 +176,30 @@ td strong { color: #354158; font-size: 11px; }
   .primary-button { padding: 10px 12px; }
   .breadcrumb { font-size: 10px; }
 }
+.resume-test-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  background: #eef4ff;
+  border: 1px solid #d5e3ff;
+  border-radius: 12px;
+}
+
+.resume-test-card h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.resume-test-card p {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.resume-test-card button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

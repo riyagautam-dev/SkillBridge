@@ -22,6 +22,9 @@ router = APIRouter(
 )
 
 
+
+
+
 # 1. Create Test
 @router.post("/tests", status_code=201)
 def create_test(
@@ -51,6 +54,8 @@ def create_test(
 
 
 # 2. Get Teacher Tests
+
+# 2. Get Teacher Tests
 @router.get("/tests")
 def get_teacher_tests(
     db: Session = Depends(get_db),
@@ -60,15 +65,36 @@ def get_teacher_tests(
         Test.teacher_id == current_user.id
     ).all()
 
-    return [
-        {
+    result = []
+
+    for test in tests:
+        questions = db.query(Question).filter(
+            Question.test_id == test.id
+        ).all()
+
+        total_questions = len(questions)
+
+        mcq_questions = sum(
+            1 for q in questions if q.question_type == "mcq"
+        )
+
+        coding_questions = sum(
+            1 for q in questions if q.question_type == "coding"
+        )
+
+        result.append({
             "test_id": test.id,
             "title": test.title,
             "description": test.description,
+            "duration_minutes": test.duration_minutes,
+            "total_questions": total_questions,
+            "mcq_questions": mcq_questions,
+            "coding_questions": coding_questions,
             "is_active": test.is_active
-        }
-        for test in tests
-    ]
+        })
+
+    return result
+
 
 
 # 3. Delete Test
@@ -552,9 +578,9 @@ def teacher_dashboard(
     ]
 
     # Count unique students who attempted teacher's tests
-    total_students = len(set(
-        a.student_id for a in attempts
-    ))
+    total_students = db.query(User).filter(
+    User.role == "student"
+).count()
 
     # Calculate average percentage
     percentages = []

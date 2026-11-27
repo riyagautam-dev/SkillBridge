@@ -117,6 +117,11 @@ def finalize_test_attempt(attempt, db):
 # =====================================================
 # 1. STUDENT AVAILABLE TESTS
 # =====================================================
+
+# =====================================================
+# 1. STUDENT AVAILABLE TESTS
+# =====================================================
+
 @router.get("/tests")
 def get_available_tests(
     db: Session = Depends(get_db),
@@ -128,8 +133,15 @@ def get_available_tests(
             detail="Only students allowed"
         )
 
+    attempted_test_ids = db.query(TestAttempt.test_id).filter(
+        TestAttempt.student_id == current_user.id
+    ).all()
+
+    attempted_test_ids = [item[0] for item in attempted_test_ids]
+
     tests = db.query(Test).filter(
-        Test.is_active == True
+        Test.is_active == True,
+        ~Test.id.in_(attempted_test_ids)
     ).all()
 
     return [
@@ -141,7 +153,6 @@ def get_available_tests(
         }
         for test in tests
     ]
-
 
 # =====================================================
 # 2. STUDENT GET TEST QUESTIONS
@@ -236,6 +247,8 @@ def get_student_questions(
 # 3. START TEST
 # =====================================================
 
+
+
 @router.post("/tests/{test_id}/start")
 def start_test(
     test_id: int,
@@ -278,9 +291,42 @@ def start_test(
                 detail="You have already submitted this test"
             )
 
+        if existing_attempt.status == "in_progress":
+
+            expires_at = get_test_expiry(existing_attempt, test)
+
+            remaining_seconds = max(
+                0,
+                int(
+                    (expires_at - datetime.now(timezone.utc)).total_seconds()
+                )
+            )
+
+            if remaining_seconds <= 0:
+
+              result = finalize_test_attempt(existing_attempt, db)
+
+              raise HTTPException(
+                  status_code=403,
+                    detail="Your previous attempt has expired and has been auto-submitted."
+    )
+
+            return {
+                "message": "Resuming existing test",
+                "attempt_id": existing_attempt.id,
+                "test_id": existing_attempt.test_id,
+                "status": existing_attempt.status,
+                "started_at": existing_attempt.started_at,
+                "duration_minutes": test.duration_minutes,
+                "expires_at": expires_at,
+                "remaining_seconds": remaining_seconds,
+                "warning_count": existing_attempt.warning_count,
+                "is_locked": existing_attempt.is_locked
+            }
+
         raise HTTPException(
             status_code=403,
-            detail="You already have an attempt for this test. New attempt is not allowed."
+            detail="This attempt cannot be resumed."
         )
 
     attempt = TestAttempt(
@@ -296,7 +342,6 @@ def start_test(
 
     except IntegrityError:
         db.rollback()
-
         raise HTTPException(
             status_code=403,
             detail="You already have an attempt for this test. New attempt is not allowed."
@@ -919,11 +964,14 @@ def student_dashboard(
     attempts = db.query(TestAttempt).filter(
         TestAttempt.student_id == current_user.id
     ).all()
+    print("SUBMITTED ATTEMPTS:", len(attempts))
 
     # 3. Separate submitted attempts
     submitted_attempts = [
         a for a in attempts if a.status == "submitted"
     ]
+    print("TOTAL ATTEMPTS:", len(attempts))
+    print("SUBMITTED ATTEMPTS:", len(submitted_attempts))
 
     # 4. Get attempted test IDs
     attempted_test_ids = [

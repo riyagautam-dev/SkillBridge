@@ -12,13 +12,9 @@ import {
 import './App.css'
 
 
-// Teacher dashboard stats
-const teacherStats = [
-  { title: 'Total Students', value: '128', note: 'Across all batches', icon: Users },
-  { title: 'Active Tests', value: '08', note: 'Currently available', icon: ClipboardList },
-  { title: 'Questions', value: '246', note: 'MCQ + Coding', icon: BookOpen },
-  { title: 'Average Score', value: '76%', note: 'Across all tests', icon: Trophy },
-]
+
+
+
 
 // Temporary teacher test data
 const tests = [
@@ -34,7 +30,48 @@ const activities = [
   { title: 'Programming Basics', detail: 'Test completed', time: 'Recently', score: '90%' },
 ]
 
+
 function App() {
+  const [teacherTests, setTeacherTests] = useState([])
+  const [teacherTestsLoading, setTeacherTestsLoading] = useState(false)
+  const [teacherTestsError, setTeacherTestsError] = useState('')
+
+  // Teacher dashboard statistics
+  const [teacherDashboardStats, setTeacherDashboardStats] = useState({
+    total_students: 0,
+    active_tests: 0,
+    total_questions: 0,
+    average_score: 0,
+  })
+  const [teacherPerformance, setTeacherPerformance] = useState([])
+  // Teacher dashboard cards
+  const teacherStats = [
+    {
+      title: 'Total Students',
+      value: String(teacherDashboardStats.total_students),
+      note: 'Across all batches',
+      icon: Users,
+    },
+    {
+      title: 'Active Tests',
+      value: String(teacherDashboardStats.active_tests).padStart(2, '0'),
+      note: 'Currently available',
+      icon: ClipboardList,
+    },
+    {
+      title: 'Questions',
+      value: String(teacherDashboardStats.total_questions),
+      note: 'MCQ + Coding',
+      icon: BookOpen,
+    },
+    {
+      title: 'Average Score',
+      value: `${teacherDashboardStats.average_score}%`,
+      note: 'Across all tests',
+      icon: Trophy,
+    },
+  ]
+
   const savedUser = JSON.parse(localStorage.getItem('user') || 'null')
 
   const [role, setRole] = useState(savedUser?.role || 'student')
@@ -55,9 +92,9 @@ function App() {
     results: [],
   })
 
-
   // Active test states
   const [activeAttempt, setActiveAttempt] = useState(null)
+  const [resumableAttempt, setResumableAttempt] = useState(null)
   const [activeTest, setActiveTest] = useState(null)
   const [testQuestions, setTestQuestions] = useState([])
   const [startingTestId, setStartingTestId] = useState(null)
@@ -106,6 +143,40 @@ function App() {
       setStartingTestId(null)
     }
   }
+
+    const handleResumeTest = async () => {
+  if (!resumableAttempt || startingTestId) return
+
+  setStartingTestId(resumableAttempt.test_id)
+  setTestError('')
+
+  try {
+    const questionsResponse = await api.get(
+      `/student/tests/${resumableAttempt.test_id}/questions`,
+      {
+        params: {
+          attempt_id: resumableAttempt.attempt_id,
+        },
+      }
+    )
+
+    setActiveAttempt({
+      attempt_id: resumableAttempt.attempt_id,
+      test_id: resumableAttempt.test_id,
+    })
+
+    setActiveTest(questionsResponse.data)
+    setTestQuestions(questionsResponse.data.questions || [])
+    setPage('Take Test')
+  } catch (error) {
+    setTestError(
+      error.response?.data?.detail ||
+      'Unable to resume the test.'
+    )
+  } finally {
+    setStartingTestId(null)
+  }
+}
   
     const handleSubmitAnswer = async (questionId) => {
     try {
@@ -221,29 +292,119 @@ function App() {
         )
       }
     }
+    const fetchActiveAttempt = async () => {
+  try {
+    const response = await api.get('/student/attempts/active')
+
+    if (isMounted) {
+      setResumableAttempt(response.data.attempt || null)
+      console.log('ACTIVE ATTEMPT:', response.data)
+    }
+  } catch (error) {
+    console.error(
+      'Unable to load active attempt:',
+      error.response?.data || error.message
+    )
+  }
+}
 
     fetchAvailableTests()
     fetchStudentResults()
+    fetchActiveAttempt()
 
     return () => {
       isMounted = false
     }
   }, [isAuthenticated, role])
+ 
+// Fetch teacher dashboard tests
+useEffect(() => {
+  if (!isAuthenticated || role !== 'teacher') return
 
-  const isTeacher = role === 'teacher'
-  const stats = isTeacher ? teacherStats : studentStats
+  let isMounted = true
 
-  // Prepare dashboard test data
+  const fetchTeacherTests = async () => {
+    try {
+      setTeacherTestsLoading(true)
+      setTeacherTestsError('')
+
+      const response = await api.get('/teacher/tests')
+      const statsResponse = await api.get('/teacher/dashboard')
+
+      if (isMounted) {
+        // Teacher tests
+        setTeacherTests(response.data)
+
+        // Teacher dashboard statistics
+        const stats = statsResponse.data.statistics
+        const performance = statsResponse.data.performance
+
+        setTeacherDashboardStats({
+          total_students: stats.total_students,
+          active_tests: stats.active_tests,
+          total_questions: stats.total_questions_created,
+          average_score: Math.round(performance.average_percentage),
+        })
+
+        // Test-wise performance
+        setTeacherPerformance(
+          statsResponse.data.test_performance || []
+        )
+
+        console.log('TEACHER TESTS:', response.data)
+        console.log('FIRST TEST:', response.data[0])
+      }
+    } catch (error) {
+      if (isMounted) {
+        setTeacherTestsError(
+          error.response?.data?.detail ||
+          'Unable to load teacher tests.'
+        )
+      }
+    } finally {
+      if (isMounted) {
+        setTeacherTestsLoading(false)
+      }
+    }
+  }
+
+  fetchTeacherTests()
+
+  return () => {
+    isMounted = false
+  }
+}, [isAuthenticated, role])
+
+const isTeacher = role === 'teacher'
+
+console.log('CURRENT ROLE:', role)
+console.log('IS TEACHER:', isTeacher)
+
+const stats = isTeacher ? teacherStats : studentStats
+
+
   const dashboardTests = isTeacher
-    ? tests
-    : availableTests.map((test) => ({
-        id: test.test_id,
-        name: test.title,
-        type: '—',
-        questions: '—',
-        duration: `${test.duration_minutes} min`,
-        status: 'Available',
-      }))
+  ? teacherTests.map((test) => ({
+      id: test.test_id,
+      name: test.title,
+      type: `${test.mcq_questions} MCQ + ${test.coding_questions} Coding`,
+      questions: test.total_questions,
+      duration: `${test.duration_minutes} min`,
+      status: test.is_active ? 'Available' : 'Inactive',
+    }))
+  : availableTests.map((test) => ({
+      id: test.test_id,
+      name: test.title,
+      type: '—',
+      questions: '—',
+      duration: `${test.duration_minutes} min`,
+      status: 'Available',
+    }))
+      console.log('DEBUG:', JSON.stringify({
+  role,
+  availableTests,
+  dashboardTests
+}, null, 2))
 
   const studentMenu = [
     { name: 'Dashboard', icon: LayoutDashboard },
@@ -481,100 +642,127 @@ function App() {
 
               </section>
 
-              <section className="dashboard-grid">
+              
+<section className="dashboard-grid">
 
-                <div className="panel performance-panel">
+  <div className="panel performance-panel">
 
-                  <div className="panel-heading">
-                    <div>
-                      <h3>
-                        {isTeacher ? 'Performance Overview' : 'Your Performance'}
-                      </h3>
-                      <p>
-                        {isTeacher
-                          ? 'Overall student performance'
-                          : 'Your progress over time'}
-                      </p>
-                    </div>
+    <div className="panel-heading">
+      <div>
+        <h3>
+          {isTeacher ? 'Performance Overview' : 'Your Performance'}
+        </h3>
+        <p>
+          {isTeacher
+            ? 'Overall student performance'
+            : 'Your progress over time'}
+        </p>
+      </div>
 
-                    <button className="period-button">
-                      This week <ChevronDown size={15} />
-                    </button>
-                  </div>
+      <button className="period-button">
+        This week <ChevronDown size={15} />
+      </button>
+    </div>
 
-                  <div className="chart-area">
+    <div className="chart-area">
 
-                    <div className="chart-y-labels">
-                      <span>100%</span>
-                      <span>75%</span>
-                      <span>50%</span>
-                      <span>25%</span>
-                      <span>0%</span>
-                    </div>
+      <div className="chart-y-labels">
+        <span>100%</span>
+        <span>75%</span>
+        <span>50%</span>
+        <span>25%</span>
+        <span>0%</span>
+      </div>
 
-                    <div className="chart">
+      <div className="chart">
 
-                      <div className="chart-gridlines">
-                        <i /><i /><i /><i /><i />
-                      </div>
+        <div className="chart-gridlines">
+          <i /><i /><i /><i /><i />
+        </div>
 
-                      <div className="chart-bars">
-                        {[42, 65, 54, 82, 68, 91, 76].map((height, i) => (
-                          <div className="bar-column" key={i}>
-                            <div
-                              className="bar"
-                              style={{ height: `${height}%` }}
-                            />
-                            <span>
-                              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+        <div className="chart-bars">
+          {isTeacher && teacherPerformance.length > 0 ? (
+            teacherPerformance.map((test) => (
+              <div className="bar-column" key={test.test_id}>
+                <div
+                  className="bar"
+                  style={{
+                    height: `${Math.min(test.average_percentage || 0, 100)}%`,
+                  }}
+                />
+                <span>
+                  {test.title.length > 10
+                    ? `${test.title.slice(0, 10)}...`
+                    : test.title}
+                </span>
+              </div>
+            ))
+          ) : (
+            <p>No completed test performance available.</p>
+          )}
+        </div>
 
-                    </div>
-                  </div>
+      </div>
+    </div>
 
-                </div>
+  </div>
 
-                <div className="panel skills-panel">
+  <div className="panel skills-panel">
 
-                  <div className="panel-heading">
-                    <div>
-                      <h3>{isTeacher ? 'Top Skills' : 'Skill Progress'}</h3>
-                      <p>
-                        {isTeacher
-                          ? 'Popular student skills'
-                          : 'Your current skill levels'}
-                      </p>
-                    </div>
-                  </div>
+    <div className="panel-heading">
+      <div>
+        <h3>{isTeacher ? 'Top Skills' : 'Skill Progress'}</h3>
+        <p>
+          {isTeacher
+            ? 'Popular student skills'
+            : 'Your current skill levels'}
+        </p>
+      </div>
+    </div>
 
-                  {[
-                    ['Python Programming', 85],
-                    ['Problem Solving', 72],
-                    ['Data Structures', 64],
-                    ['Database Management', 78],
-                  ].map(([name, value]) => (
-                    <div className="skill-item" key={name}>
+    {[
+      ['Python Programming', 85],
+      ['Problem Solving', 72],
+      ['Data Structures', 64],
+      ['Database Management', 78],
+    ].map(([name, value]) => (
+      <div className="skill-item" key={name}>
 
-                      <div className="skill-meta">
-                        <span>{name}</span>
-                        <strong>{value}%</strong>
-                      </div>
+        <div className="skill-meta">
+          <span>{name}</span>
+          <strong>{value}%</strong>
+        </div>
 
-                      <div className="progress-track">
-                        <div style={{ width: `${value}%` }} />
-                      </div>
+        <div className="progress-track">
+          <div style={{ width: `${value}%` }} />
+        </div>
 
-                    </div>
-                  ))}
+      </div>
+    ))}
 
-                </div>
+  </div>
 
-              </section>
+</section>
 
               <section className="panel tests-panel">
+                {!isTeacher && resumableAttempt && (
+  <div className="resume-test-card">
+    <div>
+      <h3>Continue Your Test</h3>
+      <p>{resumableAttempt.test_title}</p>
+    </div>
+
+    <button
+      className="primary-button"
+      onClick={handleResumeTest}
+      disabled={startingTestId !== null}
+    >
+      {startingTestId === resumableAttempt.test_id
+        ? 'Resuming...'
+        : 'Resume Test'}
+    </button>
+  </div>
+)}
 
                 <div className="panel-heading">
 
@@ -611,58 +799,54 @@ function App() {
                       </tr>
                     </thead>
 
-                    <tbody>
+                    
+<tbody>
+  {(isTeacher ? teacherTestsLoading : testsLoading) ? (
+    <tr>
+      <td colSpan="6">Loading tests...</td>
+    </tr>
+  ) : (isTeacher ? teacherTestsError : testsError) ? (
+    <tr>
+      <td colSpan="6">
+        {isTeacher ? teacherTestsError : testsError}
+      </td>
+    </tr>
+  ) : dashboardTests.length === 0 ? (
+    <tr>
+      <td colSpan="6">No available tests found.</td>
+    </tr>
+  ) : (
+    dashboardTests.map((test) => (
+      <tr key={test.id}>
+        <td><strong>{test.name}</strong></td>
+        <td>{test.type}</td>
+        <td>{test.questions}</td>
+        <td>{test.duration}</td>
+        <td>
+          <span className={`status ${test.status.toLowerCase()}`}>
+            {test.status}
+          </span>
+        </td>
+        <td>
+          <button
+            className="row-action"
+            onClick={() => {
+              if (isTeacher) {
+                setPage('Manage Tests')
+              } else {
+                handleStartTest(test)
+              }
+            }}
+            disabled={!isTeacher && startingTestId === test.id}
+          >
+            {!isTeacher && startingTestId === test.id ? '...' : '→'}
+          </button>
+        </td>
+      </tr>
+    ))
+  )}
+</tbody>
 
-                      {testsLoading && !isTeacher ? (
-                        <tr>
-                          <td colSpan="6">Loading tests...</td>
-                        </tr>
-                      ) : testsError && !isTeacher ? (
-                        <tr>
-                          <td colSpan="6">{testsError}</td>
-                        </tr>
-                      ) : dashboardTests.length === 0 ? (
-                        <tr>
-                          <td colSpan="6">No available tests found.</td>
-                        </tr>
-                      ) : (
-                        dashboardTests.map((test) => (
-                          <tr key={test.id || test.name}>
-
-                            <td><strong>{test.name}</strong></td>
-                            <td>{test.type}</td>
-                            <td>{test.questions}</td>
-                            <td>{test.duration}</td>
-
-                            <td>
-                              <span className={`status ${test.status.toLowerCase()}`}>
-                                {test.status}
-                              </span>
-                            </td>
-
-                            <td>
-                              <button
-                                className="row-action"
-                                onClick={() => {
-                                  if (isTeacher) {
-                                    setPage('Manage Tests')
-                                  } else {
-                                    handleStartTest(test)
-                                  }
-                                }}
-                                disabled={!isTeacher && startingTestId === test.id}
-                              >
-                                {!isTeacher && startingTestId === test.id
-                                  ? '...'
-                                  : '→'}
-                              </button>
-                            </td>
-
-                          </tr>
-                        ))
-                      )}
-
-                    </tbody>
                   </table>
 
                 </div>
@@ -673,41 +857,51 @@ function App() {
 
               </section>
 
-              <section className="panel activity-panel">
+              
+<section className="panel activity-panel">
 
-                <div className="panel-heading">
-                  <div>
-                    <h3>{isTeacher ? 'Recent Activity' : 'Recent Attempts'}</h3>
-                    <p>
-                      {isTeacher
-                        ? 'Latest student activity'
-                        : 'Your latest assessment history'}
-                    </p>
-                  </div>
-                </div>
+  <div className="panel-heading">
+    <div>
+      <h3>{isTeacher ? 'Recent Activity' : 'Recent Attempts'}</h3>
+      <p>
+        {isTeacher
+          ? 'Latest student activity'
+          : 'Your latest assessment history'}
+      </p>
+    </div>
+  </div>
 
-                {!isTeacher && studentActivities.length === 0 && (
-                  <p>No completed tests yet.</p>
-                )}
+  {!isTeacher && studentResults.results.length === 0 && (
+    <p>No completed tests yet.</p>
+  )}
 
-                {(isTeacher ? activities : studentActivities).map((item, index) => (
-                  <div className="activity-row" key={`${item.title}-${index}`}>
+  {(isTeacher ? activities : studentResults.results).map((item, index) => (
+    <div
+      className="activity-row"
+      key={isTeacher ? `${item.title}-${index}` : item.attempt_id}
+    >
+      <div className="activity-icon">
+        <CheckCircle2 size={19} />
+      </div>
 
-                    <div className="activity-icon">
-                      <CheckCircle2 size={19} />
-                    </div>
+      <div className="activity-description">
+        <strong>{isTeacher ? item.title : item.test_title}</strong>
+        <span>
+          {isTeacher
+            ? `${item.detail} · ${item.time}`
+            : `${item.total_questions} Questions · ${item.percentage}%`}
+        </span>
+      </div>
 
-                    <div className="activity-description">
-                      <strong>{item.title}</strong>
-                      <span>{item.detail} · {item.time}</span>
-                    </div>
+      <strong className="activity-score">
+        {isTeacher
+          ? item.score
+          : `${item.final_score}/${item.total_marks}`}
+      </strong>
+    </div>
+  ))}
 
-                    <strong className="activity-score">{item.score}</strong>
-
-                  </div>
-                ))}
-
-              </section>
+</section>
 
             </>
           

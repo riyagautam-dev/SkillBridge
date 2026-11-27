@@ -140,6 +140,9 @@ export default function ManageTests() {
                 <h4>{test.title}</h4>
                 <p>{test.description}</p>
                 <p>Status: {test.is_active ? "Active" : "Inactive"}</p>
+                <p>Duration: {test.duration_minutes} minutes</p>
+               <p>Total Questions: {test.total_questions}</p>
+              <p>MCQ: {test.mcq_questions} | Coding: {test.coding_questions}</p>
 
                 <button onClick={() => setSelectedTest(test)}>
                   Add Questions
